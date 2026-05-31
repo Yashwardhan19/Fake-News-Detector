@@ -82,13 +82,31 @@ class TextPreprocessor:
 #Quck test
 if __name__ == "__main__":
     import pandas as pd
+    import os
 
     pp = TextPreprocessor()
-    df = pd.read_csv("data/True.csv")
 
-    sample = df['text'].head()
-    for text in sample:
-        print("Original:", text[:80])
-        print("Cleaned :", pp.clean(text[:80]))
-        print("---")
+    # load  data
+    true_df = pd.read_csv("data/True.csv")
+    fake_df = pd.read_csv("data/Fake.csv")
+
+    true_df['label'] = 0
+    fake_df['label'] = 1
+
+    df = pd.concat([true_df, fake_df], ignore_index=True)
+    # shuffle dataset — mix real and fake rows randomly
+    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    print(f"Total rows: {len(df)}")
+
+    # clean text column and save to new column 'clean_text'
+    print("Cleaning text...")
+    df['clean_text'] = pp.clean_batch(df['text'])
+
+    # save cleaned dataset for future use
+    os.makedirs("data/processed", exist_ok=True)
+    df.to_csv("data/processed/cleaned_dataset.csv", index=False)
+
+    print("Done! Saved to data/processed/cleaned_dataset.csv")
+    print(df[['text', 'clean_text', 'label']].head(3))
 
