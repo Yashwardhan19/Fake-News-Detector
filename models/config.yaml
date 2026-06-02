@@ -10,3 +10,17 @@ features:
     sublinear_tf: true
     min_df: 2
     max_df: 0.95
+
+  meta:
+    # list of column names get_meta_features() returns
+    columns:
+      - char_count
+      - word_count
+      - sentence_count
+      - exclamation_count
+      - question_count
+      - cap_word_count
+      - avg_word_len
+      - avg_sentence_len
+      - quote_count
+      - digit_ratio

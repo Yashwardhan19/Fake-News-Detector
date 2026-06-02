@@ -77,16 +77,36 @@ class TextPreprocessor:
     def clean_batch(self, texts: list) -> list:
         """Clean a list of texts — use this on DataFrame column."""
         return [self.clean(t) for t in texts]  
+    
+    def get_meta_features(self, text: str) -> dict:
+        if not isinstance(text, str):
+            text = ""
+
+        words = text.split()
+        sentence_count = max(1, text.count('.') + text.count('!') + text.count('?'))
+
+        return {
+            "char_count": len(text),
+            "word_count": len(words),
+            "sentence_count": sentence_count,
+            "exclamation_count": text.count('!'),
+            "question_count": text.count('?'),
+            "cap_word_count": sum(1 for w in words if w.isupper() and len(w) > 1),
+            "avg_word_len": sum(len(w) for w in words) / max(1, len(words)),
+            "avg_sentence_len": len(words) / sentence_count,
+            "quote_count": text.count('"') + text.count("'"),
+            "digit_ratio": sum(c.isdigit() for c in text) / max(1, len(text))
+        }
 
 
-#Quck test
+# Quck test
 if __name__ == "__main__":
     import pandas as pd
     import os
 
     pp = TextPreprocessor()
 
-    # load  data
+    # load data
     true_df = pd.read_csv("data/True.csv")
     fake_df = pd.read_csv("data/Fake.csv")
 
@@ -94,14 +114,46 @@ if __name__ == "__main__":
     fake_df['label'] = 1
 
     df = pd.concat([true_df, fake_df], ignore_index=True)
+
     # shuffle dataset — mix real and fake rows randomly
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    # Remove rows where text is missing
+    df = df.dropna(subset=["text"])
+
+    # Remove rows with empty text
+    df = df[df["text"].astype(str).str.strip() != ""]
+
+    print(f"Rows after removing null/empty text: {len(df)}")
 
     print(f"Total rows: {len(df)}")
 
     # clean text column and save to new column 'clean_text'
     print("Cleaning text...")
+
     df['clean_text'] = pp.clean_batch(df['text'])
+
+    # Remove rows where cleaned text became empty
+    df["clean_text"] = df["clean_text"].fillna("").astype(str)
+    df = df[df["clean_text"].str.strip().ne("")]
+
+    # Reset index after filtering
+    df = df.reset_index(drop=True)
+
+    print(f"Rows after removing empty clean_text: {len(df)}")
+
+    print("Generating meta features...")
+
+    meta_df = pd.DataFrame(
+        [pp.get_meta_features(text) for text in df['text']]
+    ).reset_index(drop=True)
+
+    df = pd.concat([df, meta_df], axis=1)
+
+    print(
+        "Empty clean_text before save:",
+        (df["clean_text"].fillna("").str.strip() == "").sum()
+    )
 
     # save cleaned dataset for future use
     os.makedirs("data/processed", exist_ok=True)
@@ -109,4 +161,3 @@ if __name__ == "__main__":
 
     print("Done! Saved to data/processed/cleaned_dataset.csv")
     print(df[['text', 'clean_text', 'label']].head(3))
-
