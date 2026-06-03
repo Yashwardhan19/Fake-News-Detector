@@ -24,3 +24,17 @@ features:
       - avg_sentence_len
       - quote_count
       - digit_ratio
+
+training:
+  test_size: 0.2
+  random_state: 42
+
+models:
+  dir: models/
+  plots_dir: models/plots/
+  lr:
+    C: 1.0
+    max_iter: 3000
+  rf:
+    n_estimators: 200
+    max_depth: null

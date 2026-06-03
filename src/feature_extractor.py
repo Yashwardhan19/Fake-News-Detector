@@ -9,7 +9,7 @@ from sklearn.preprocessing import StandardScaler
 import scipy.sparse as sp
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CONFIG_PATH = Path(__file__).resolve().parent.parent / "models" / "config.yaml"#in this way, we can load config.yaml from anywhere (train.py, app.py) and it will always resolve to the correct path relative to this file
+CONFIG_PATH = Path(__file__).resolve().parent.parent  / "config.yaml"#in this way, we can load config.yaml from anywhere (train.py, app.py) and it will always resolve to the correct path relative to this file
 with open(CONFIG_PATH, "r") as f:
     CONFIG = yaml.safe_load(f)#load config.yaml into a dict, so we can access all our settings from there .
 
