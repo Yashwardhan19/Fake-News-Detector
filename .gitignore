@@ -1,2 +1,4 @@
 data/processed/
 *.txt
+models/*.pkl
+models/plots/
