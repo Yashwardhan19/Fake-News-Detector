@@ -63,7 +63,7 @@ class TextPreprocessor:
 
     def clean(self, text: str) -> str:
         """Run all cleaning steps and return cleaned text."""
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str) or not text.strip():# guard against non-string or empty inputs
             return ""
         text = contractions.fix(text)
         text = text.lower()
@@ -75,11 +75,11 @@ class TextPreprocessor:
         return " ".join(tokens)
 
     def clean_batch(self, texts: list) -> list:
-        """Clean a list of texts — use this on DataFrame column."""
+        """Clean a list of texts - use this on DataFrame column."""
         return [self.clean(t) for t in texts]  
     
     def get_meta_features(self, text: str) -> dict:
-        if not isinstance(text, str):
+        if not isinstance(text, str):# guard against non-string inputs
             text = ""
 
         words = text.split()

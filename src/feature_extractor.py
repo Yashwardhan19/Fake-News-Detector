@@ -13,7 +13,7 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent  / "config.yaml"#in this wa
 with open(CONFIG_PATH, "r") as f:
     CONFIG = yaml.safe_load(f)#load config.yaml into a dict, so we can access all our settings from there .
 
-MODELS_DIR = Path(CONFIG["paths"]["models_dir"])#
+MODELS_DIR = Path(CONFIG["paths"]["models_dir"])
 MODELS_DIR.mkdir(exist_ok=True)
 
 TFIDF_CFG = CONFIG["features"]["tfidf"]

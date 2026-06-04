@@ -22,7 +22,7 @@ def load_config(config_path: str = None) -> dict:
  
  
 def load_data(config: dict):
-    """Load cleaned dataset — returns full df so FeatureExtractor can access all columns."""
+    """Load cleaned dataset - returns full df so FeatureExtractor can access all columns."""
     df = pd.read_csv(Path(config["paths"]["processed_dir"]) / "cleaned_dataset.csv")
     df["clean_text"] = df["clean_text"].fillna("")
     y = df["label"]
