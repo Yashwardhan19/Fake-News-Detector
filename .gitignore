@@ -4,3 +4,10 @@ models/*.pkl
 models/plots/
 __pycache__/
 *.pyc
+*.pyo
+
+# Secrets — NEVER push to git
+.env
+
+# Personal notes
+walkthrough.md

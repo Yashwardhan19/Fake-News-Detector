@@ -38,3 +38,23 @@ models:
   rf:
     n_estimators: 200
     max_depth: null
+
+credibility:
+  # API key is loaded from .env file (GOOGLE_FACT_CHECK_API_KEY)
+  # DO NOT put API keys in this file!
+  max_results: 5
+  
+  trusted_sources:
+    reuters.com: 0.95
+    apnews.com: 0.95
+    bbc.com: 0.90
+    nytimes.com: 0.85
+    theguardian.com: 0.85
+    washingtonpost.com: 0.85
+    ndtv.com: 0.75
+    thehindu.com: 0.80
+  
+  untrusted_sources:
+    infowars.com: 0.05
+    naturalnews.com: 0.10
+    beforeitsnews.com: 0.05

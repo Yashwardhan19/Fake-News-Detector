@@ -1,11 +1,15 @@
 import shap
 import pickle
+import sys
 import numpy as np
 import pandas as pd
 import yaml
 import matplotlib.pyplot as plt
 from pathlib import Path
-from src.feature_extractor import FeatureExtractor
+
+# Add src/ to Python path so imports work from any directory
+sys.path.append(str(Path(__file__).resolve().parent))
+from feature_extractor import FeatureExtractor
 
 
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"

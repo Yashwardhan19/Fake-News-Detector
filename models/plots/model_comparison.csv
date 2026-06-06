@@ -1,4 +1,4 @@
 Model,F1 (Fake),Precision (Fake),Recall (Fake),ROC-AUC,Inference Time (s)
-Logistic Regression,0.9868,0.9901,0.9835,0.9983,0.0
-Random Forest,0.9958,0.9956,0.996,0.9999,0.0
-Ensemble,0.9944,0.9943,0.9945,0.9999,0.0
+Logistic Regression,0.8908,0.8908,0.8908,0.9709,0.02
+Random Forest,0.9089,0.9206,0.8974,0.9782,2.11
+Ensemble,0.9074,0.9144,0.9004,0.9786,2.16

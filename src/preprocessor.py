@@ -99,51 +99,112 @@ class TextPreprocessor:
         }
 
 
-# Quck test
+# Quick test
 if __name__ == "__main__":
     import pandas as pd
     import os
+    from pathlib import Path
+
+    # Resolve paths relative to this file — works from any directory
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    DATA_DIR = PROJECT_ROOT / "data"
 
     pp = TextPreprocessor()
 
-    # load data
-    true_df = pd.read_csv("data/True.csv")
-    fake_df = pd.read_csv("data/Fake.csv")
+    # ── 1. Load ISOT dataset (True.csv + Fake.csv) ──────────────────────────
+    print("=" * 50)
+    print("[1/5] Loading ISOT dataset...")
+    true_df = pd.read_csv(DATA_DIR / "True.csv")
+    fake_df = pd.read_csv(DATA_DIR / "Fake.csv")
 
-    true_df['label'] = 0
-    fake_df['label'] = 1
+    true_df['label'] = 0   # Real
+    fake_df['label'] = 1   # Fake
+    true_df['source_dataset'] = 'ISOT'
+    fake_df['source_dataset'] = 'ISOT'
 
-    df = pd.concat([true_df, fake_df], ignore_index=True)
+    isot_df = pd.concat([true_df, fake_df], ignore_index=True)
+    # ISOT has 'text' column already
+    print(f"  ISOT: {len(true_df)} Real + {len(fake_df)} Fake = {len(isot_df)} total")
 
-    # shuffle dataset — mix real and fake rows randomly
+    # ── 2. Load LIAR dataset (train.tsv + test.tsv + valid.tsv) ─────────────
+    print("[2/5] Loading LIAR dataset...")
+
+    # LIAR TSV columns (no header):
+    # 0:ID, 1:label, 2:statement, 3:subject, 4:speaker, 5:job, 6:state,
+    # 7:party, 8-12:credit_counts, 13:context
+    LIAR_COLS = [
+        "id", "label_raw", "text", "subject", "speaker", "job",
+        "state", "party", "barely_true", "false_count", "half_true",
+        "mostly_true", "pants_fire", "context"
+    ]
+
+    liar_parts = []
+    for tsv_file in ["train.tsv", "test.tsv", "valid.tsv"]:
+        tsv_path = DATA_DIR / tsv_file
+        if tsv_path.exists():
+            part = pd.read_csv(tsv_path, sep="\t", header=None, names=LIAR_COLS)
+            liar_parts.append(part)
+            print(f"  {tsv_file}: {len(part)} rows")
+
+    liar_df = pd.concat(liar_parts, ignore_index=True)
+
+    # Map LIAR 6-class labels → binary
+    # Real (0): true, mostly-true, half-true
+    # Fake (1): barely-true, false, pants-fire
+    LABEL_MAP = {
+        "true":        0,
+        "mostly-true": 0,
+        "half-true":   0,
+        "barely-true": 1,
+        "false":       1,
+        "pants-fire":  1,
+    }
+    liar_df["label"] = liar_df["label_raw"].map(LABEL_MAP)
+    liar_df["source_dataset"] = "LIAR"
+
+    # Drop rows with unmapped labels (if any)
+    before = len(liar_df)
+    liar_df = liar_df.dropna(subset=["label"])
+    liar_df["label"] = liar_df["label"].astype(int)
+    if len(liar_df) < before:
+        print(f"  Dropped {before - len(liar_df)} rows with unknown labels")
+
+    liar_real = (liar_df["label"] == 0).sum()
+    liar_fake = (liar_df["label"] == 1).sum()
+    print(f"  LIAR: {liar_real} Real + {liar_fake} Fake = {len(liar_df)} total")
+
+    # ── 3. Merge both datasets ──────────────────────────────────────────────
+    print("[3/5] Merging ISOT + LIAR...")
+
+    # Keep only common columns
+    isot_df = isot_df[["text", "label", "source_dataset"]]
+    liar_df = liar_df[["text", "label", "source_dataset"]]
+
+    df = pd.concat([isot_df, liar_df], ignore_index=True)
+
+    # Shuffle — mix real/fake and ISOT/LIAR randomly
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
-    # Remove rows where text is missing
+    # Remove null/empty text
     df = df.dropna(subset=["text"])
-
-    # Remove rows with empty text
     df = df[df["text"].astype(str).str.strip() != ""]
 
-    print(f"Rows after removing null/empty text: {len(df)}")
+    total_real = (df["label"] == 0).sum()
+    total_fake = (df["label"] == 1).sum()
+    print(f"  Combined: {total_real} Real + {total_fake} Fake = {len(df)} total")
 
-    print(f"Total rows: {len(df)}")
-
-    # clean text column and save to new column 'clean_text'
-    print("Cleaning text...")
-
+    # ── 4. Clean text + meta features ───────────────────────────────────────
+    print("[4/5] Cleaning text...")
     df['clean_text'] = pp.clean_batch(df['text'])
 
     # Remove rows where cleaned text became empty
     df["clean_text"] = df["clean_text"].fillna("").astype(str)
     df = df[df["clean_text"].str.strip().ne("")]
-
-    # Reset index after filtering
     df = df.reset_index(drop=True)
 
-    print(f"Rows after removing empty clean_text: {len(df)}")
+    print(f"  Rows after removing empty clean_text: {len(df)}")
 
-    print("Generating meta features...")
-
+    print("  Generating meta features...")
     meta_df = pd.DataFrame(
         [pp.get_meta_features(text) for text in df['text']]
     ).reset_index(drop=True)
@@ -151,13 +212,19 @@ if __name__ == "__main__":
     df = pd.concat([df, meta_df], axis=1)
 
     print(
-        "Empty clean_text before save:",
+        "  Empty clean_text before save:",
         (df["clean_text"].fillna("").str.strip() == "").sum()
     )
 
-    # save cleaned dataset for future use
-    os.makedirs("data/processed", exist_ok=True)
-    df.to_csv("data/processed/cleaned_dataset.csv", index=False)
+    # ── 5. Save ─────────────────────────────────────────────────────────────
+    print("[5/5] Saving...")
+    out_dir = DATA_DIR / "processed"
+    os.makedirs(out_dir, exist_ok=True)
+    df.to_csv(out_dir / "cleaned_dataset.csv", index=False)
 
-    print("Done! Saved to data/processed/cleaned_dataset.csv")
-    print(df[['text', 'clean_text', 'label']].head(3))
+    print(f"\nDone! Saved to {out_dir / 'cleaned_dataset.csv'}")
+    print(f"Final shape: {df.shape}")
+    print(f"\nDataset breakdown:")
+    print(df.groupby(["source_dataset", "label"]).size().unstack(fill_value=0))
+    print(f"\nSample rows:")
+    print(df[['text', 'clean_text', 'label', 'source_dataset']].head(3))
