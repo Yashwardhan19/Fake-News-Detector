@@ -1,0 +1,33 @@
+# Fake News Detector - Python Dependencies
+# Install all: pip install -r requirements.txt
+
+# Core ML & Data
+pandas==2.3.3
+numpy==2.4.4
+scikit-learn==1.7.2
+scipy==1.17.1
+
+# NLP & Text Processing
+nltk==3.9.2
+contractions==0.1.73
+
+# Model Explainability
+shap==0.52.0
+
+# Visualization
+matplotlib==3.10.6
+seaborn==0.13.2
+plotly==6.3.0
+
+# Web Application
+streamlit==1.51.0
+
+# Configuration & Utilities
+PyYAML==6.0.3
+joblib==1.5.2
+python-dotenv==1.1.0
+requests==2.34.2
+
+# Optional — SBERT (sentence embeddings, ~100MB download)
+# Uncomment if you want SBERT features:
+# sentence-transformers>=2.2.0

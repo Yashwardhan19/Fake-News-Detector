@@ -1,3 +1,19 @@
+"""
+SHAP-based model explainability for the Fake News Detector.
+
+Uses SHAP (SHapley Additive exPlanations) to interpret predictions from the
+Logistic Regression model. The LR model operates on 50,010 features (50,000
+TF-IDF word features + 10 meta features), but word-level highlights only use
+the TF-IDF slice so users see which *words* influenced the prediction.
+
+Main workflow:
+  1. setup()           - build SHAP explainer from a training sample
+  2. save_background() - persist explainer to disk for inference
+  3. load()            - reload persisted explainer (used by Streamlit app)
+  4. explain()         - generate per-word SHAP contributions for one article
+  5. build_highlight_html() - render color-coded HTML for the Streamlit UI
+"""
+
 import shap
 import pickle
 import sys
@@ -12,6 +28,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 from feature_extractor import FeatureExtractor
 
 
+# ── Config & paths ─────────────────────────────────────────
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 with open(CONFIG_PATH, "r") as f:
     CONFIG = yaml.safe_load(f)
@@ -29,6 +46,7 @@ class FakeNewsExplainer:
     """
 
     def __init__(self):
+        """Load the trained LR model and fitted feature extractor from disk."""
         # Load fitted LR model from disk
         with open(MODELS_DIR / "lr_model.pkl", "rb") as f:
             self.lr_model = pickle.load(f)
@@ -43,34 +61,42 @@ class FakeNewsExplainer:
     def setup(self, df_sample: pd.DataFrame):
         """
         Build SHAP LinearExplainer using a background sample from training data.
-        df_sample: sample DataFrame with clean_text + meta cols (raw df, not pre-transformed).
-        LR model was trained on full 50,010 features, so background must match shape.
+
+        Args:
+            df_sample: Sample DataFrame with clean_text + meta columns (raw,
+                       not pre-transformed). Must come from the training set.
         """
-        # Full feature matrix — must match LR training shape (50,010)
+        # Full feature matrix -- must match LR training shape (50,010)
         X_full = self.extractor.transform(df_sample)
 
-        # shap.sample picks a random subset — keeps memory manageable
+        # shap.sample picks a random subset -- keeps memory manageable
+        # while still giving SHAP a representative baseline distribution
         background = shap.sample(X_full, min(200, X_full.shape[0]))
 
-        # LinearExplainer uses LR coefficients directly — fast on CPU
+        # LinearExplainer uses LR coefficients directly -- fast on CPU
+        # compared to KernelExplainer which requires many model evaluations
         self.explainer      = shap.LinearExplainer(self.lr_model, background)
         self._feature_names = self.extractor.tfidf.get_feature_names_out().tolist()
-        print(f"[Explainer] Ready — background shape: {background.shape}")
+        print(f"[Explainer] Ready -- background shape: {background.shape}")
 
     def save_background(self):
         """
         Save fitted explainer to disk so Streamlit can load without raw data.
+
         Must call setup() before this.
+
+        Raises:
+            RuntimeError: If setup() has not been called yet.
         """
         if self.explainer is None:
             raise RuntimeError("Call setup() before save_background()")
         with open(MODELS_DIR / "shap_explainer.pkl", "wb") as f:
             pickle.dump(self.explainer, f)
-        print(f"[Explainer] Saved → {MODELS_DIR / 'shap_explainer.pkl'}")
+        print(f"[Explainer] Saved -> {MODELS_DIR / 'shap_explainer.pkl'}")
 
     def load(self):
         """
-        Load saved explainer from disk — used in Streamlit app at inference time.
+        Load saved explainer from disk -- used in Streamlit app at inference time.
         No raw training data needed.
         """
         with open(MODELS_DIR / "shap_explainer.pkl", "rb") as f:
@@ -80,13 +106,23 @@ class FakeNewsExplainer:
 
     def explain(self, df_row: pd.DataFrame, top_n: int = 15) -> dict:
         """
-        Explain a single prediction — returns top contributing words.
-        df_row: single-row DataFrame with clean_text + meta cols.
+        Explain a single prediction -- returns top contributing words.
+
+        Args:
+            df_row: Single-row DataFrame with clean_text + meta columns.
+            top_n:  Number of top words to return per direction (fake/real).
+
+        Returns:
+            dict with keys: prediction, fake_probability, top_fake_words,
+            top_real_words, all_word_shap.
+
+        Raises:
+            RuntimeError: If neither setup() nor load() has been called.
         """
         if self.explainer is None:
             raise RuntimeError("Call setup() or load() before explain()")
 
-        # Full features for SHAP — must match LR training shape (50,010)
+        # Full features for SHAP -- must match LR training shape (50,010)
         X_full    = self.extractor.transform(df_row)
         shap_vals = self.explainer.shap_values(X_full)
 
@@ -96,11 +132,12 @@ class FakeNewsExplainer:
         else:
             sv = shap_vals[0]      # new versions return single array
 
-        # Slice only TF-IDF portion — first 50,000 are words, last 10 are meta
+        # Slice only TF-IDF portion -- first 50,000 are words, last 10 are meta
         n_tfidf  = len(self._feature_names)   # 50,000
         sv_tfidf = sv[:n_tfidf]               # drop meta SHAP values, keep words only
 
         # Filter only words actually present in this article (non-zero TF-IDF score)
+        # so the explanation only shows words the user can actually find in the text
         X_tfidf_dense = np.asarray(self.extractor.get_tfidf_only(df_row).todense())[0]
         word_shap = [
             (self._feature_names[i], float(sv_tfidf[i]))
@@ -108,9 +145,10 @@ class FakeNewsExplainer:
             if X_tfidf_dense[i] != 0.0   # word must appear in this article
         ]
 
-        # Sort by absolute contribution — strongest signals first
+        # Sort by absolute contribution -- strongest signals first
         word_shap.sort(key=lambda x: abs(x[1]), reverse=True)
 
+        # Positive SHAP = pushes toward Fake; negative SHAP = pushes toward Real
         fake_words = [(w, v) for w, v in word_shap if v > 0][:top_n]
         real_words = [(w, v) for w, v in word_shap if v < 0][:top_n]
 
@@ -128,8 +166,16 @@ class FakeNewsExplainer:
     def build_highlight_html(self, clean_text: str, explanation: dict) -> str:
         """
         Returns HTML with words color-coded by SHAP value.
+
         Red = pushing toward FAKE, Green = pushing toward REAL.
         Plug directly into st.markdown(..., unsafe_allow_html=True).
+
+        Args:
+            clean_text:  Preprocessed article text (space-separated tokens).
+            explanation: Dict returned by explain().
+
+        Returns:
+            HTML string with color-coded word spans.
         """
         word_map = {w: v for w, v in explanation["all_word_shap"]}
 
@@ -143,11 +189,12 @@ class FakeNewsExplainer:
         for token in tokens:
             if token in word_map:
                 score = word_map[token]
+                # Alpha scales linearly with SHAP magnitude -- stronger signal = darker
                 alpha = round(0.15 + (abs(score) / max_abs) * 0.6, 2)
                 bg    = (
-                    f"rgba(220,60,60,{alpha})"    # red   → FAKE signal
+                    f"rgba(220,60,60,{alpha})"    # red  -> FAKE signal
                     if score > 0 else
-                    f"rgba(30,160,90,{alpha})"    # green → REAL signal
+                    f"rgba(30,160,90,{alpha})"    # green -> REAL signal
                 )
                 parts.append(
                     f'<span style="background:{bg};padding:2px 5px;'
@@ -163,9 +210,14 @@ class FakeNewsExplainer:
 
     def plot_explanation(self, explanation: dict, save_path: str = None):
         """
-        Horizontal bar chart of top words.
+        Horizontal bar chart of top contributing words.
+
         Red bars = fake signal, green bars = real signal.
         Saves PNG to models/plots/ or shows inline.
+
+        Args:
+            explanation: Dict returned by explain().
+            save_path:   If provided, saves the plot as PNG to this path.
         """
         fake_words = explanation["top_fake_words"][:10]
         real_words = explanation["top_real_words"][:10]
@@ -186,20 +238,20 @@ class FakeNewsExplainer:
 
         if save_path:
             plt.savefig(save_path, bbox_inches="tight")
-            print(f"[Saved] → {save_path}")
+            print(f"[Saved] -> {save_path}")
         else:
             plt.show()
         plt.close()
 
 
-# Quick test
+# ── Quick test ─────────────────────────────────────────────
 if __name__ == "__main__":
     df = pd.read_csv("data/processed/cleaned_dataset.csv")
     df["clean_text"] = df["clean_text"].fillna("")
 
     exp = FakeNewsExplainer()
 
-    # Pass raw df — transform happens inside setup()
+    # Pass raw df -- transform happens inside setup()
     exp.setup(df.sample(500, random_state=42))
     exp.save_background()
 

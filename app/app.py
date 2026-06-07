@@ -1,10 +1,23 @@
+"""
+Streamlit web application for the Fake News Detector.
+
+Provides a two-tab UI:
+  1. **Analyze Article** - paste a news article, run three models (Logistic
+     Regression, Random Forest, Ensemble), show SHAP word-level explanations,
+     and perform credibility / fact-check lookups.
+  2. **Model Comparison** - display held-out test-set metrics loaded from
+     the CSV produced by model_trainer.py.
+
+Launch with:  streamlit run app/app.py
+"""
+
 import streamlit as st
 import pandas as pd
 import joblib
 import sys
 from pathlib import Path
 
-# Add project root to Python path — must be before src imports
+# Add project root to Python path -- must be before src imports
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT_DIR))
 
@@ -23,18 +36,28 @@ st.set_page_config(
 
 @st.cache_resource
 def load_artifacts():
+    """
+    Load all ML artifacts once and cache them across Streamlit reruns.
+
+    Returns:
+        Tuple of (TextPreprocessor, FeatureExtractor, lr_model, rf_model,
+        ensemble_model, FakeNewsExplainer, CredibilityChecker).
+    """
     pp = TextPreprocessor()
 
     fe = FeatureExtractor()
     fe.load()
 
+    # Load all three trained classifiers from disk
     lr_model       = joblib.load(ROOT_DIR / "models" / "lr_model.pkl")
     rf_model       = joblib.load(ROOT_DIR / "models" / "rf_model.pkl")
     ensemble_model = joblib.load(ROOT_DIR / "models" / "ensemble_model.pkl")
 
+    # Explainer loads persisted SHAP background -- no raw data needed
     exp = FakeNewsExplainer()
     exp.load()
 
+    # Credibility checker uses Google Fact Check API + source trust list
     checker = CredibilityChecker()
 
     return pp, fe, lr_model, rf_model, ensemble_model, exp, checker
@@ -44,8 +67,18 @@ pp, fe, lr_model, rf_model, ensemble_model, exp, checker = load_artifacts()
 
 
 def predict_all(text: str):
+    """
+    Run all three models on a single article and generate SHAP explanation.
+
+    Args:
+        text: Raw news article text (not yet preprocessed).
+
+    Returns:
+        Tuple of (results dict, SHAP explanation dict, cleaned text string).
+    """
     clean = pp.clean(text)
     meta  = pp.get_meta_features(text)
+    # Build a single-row DataFrame matching the training schema
     df    = pd.DataFrame([{"clean_text": clean, **meta}])
     X     = fe.transform(df)
 
@@ -60,6 +93,7 @@ def predict_all(text: str):
             "confidence": max(proba) * 100
         }
 
+    # SHAP explanation is always based on the LR model (most interpretable)
     explanation = exp.explain(df, top_n=20)
     return results, explanation, clean
 
@@ -99,6 +133,7 @@ with tab_predict:
             with st.spinner("Running models..."):
                 try:
                     all_results, explanation, clean_text = predict_all(news_text)
+                    # Ensemble is the primary prediction shown to the user
                     ensemble_res = all_results["Ensemble"]
 
                     if ensemble_res["label"] == 0:
@@ -111,6 +146,7 @@ with tab_predict:
                         f"{ensemble_res['confidence']:.1f}%"
                     )
 
+                    # Show how each individual model voted for transparency
                     st.markdown("**Individual model votes:**")
                     for mname, res in all_results.items():
                         icon = "✅" if res["label"] == 0 else "🚨"
@@ -130,6 +166,7 @@ with tab_predict:
             "Darker = stronger signal"
         )
 
+        # Render color-coded article text using SHAP values
         highlight_html = exp.build_highlight_html(clean_text, explanation)
         st.markdown(highlight_html, unsafe_allow_html=True)
 
@@ -138,6 +175,7 @@ with tab_predict:
 
         import plotly.graph_objects as go
 
+        # Combine top fake + real words into one horizontal bar chart
         top_words = explanation["top_fake_words"][:8] + explanation["top_real_words"][:8]
         words_    = [w for w, _ in top_words]
         scores_   = [v for _, v in top_words]
@@ -168,14 +206,14 @@ with tab_predict:
         with st.spinner("Checking fact databases..."):
             cred_result = checker.full_check(news_text, source_url)
 
-        # Source trust score
+        # Source trust score (only shown if user provided a URL)
         if source_url:
             src = cred_result["source_check"]
             if src and src["domain"]:
                 score_text = f" (Trust score: {src['score']})" if src["score"] else ""
                 st.markdown(f"**Source:** `{src['domain']}` — {src['label']}{score_text}")
 
-        # Fact check results
+        # Fact check results from Google Fact Check API
         fact = cred_result["fact_check"]
         if fact["found"]:
             st.warning("⚠️ Related fact-checks found in database:")
@@ -195,13 +233,13 @@ with tab_compare:
     st.subheader("Model performance comparison")
     st.caption("Evaluated on held-out test set.")
 
-    metrics_path = ROOT_DIR / "models" / "model_metrics.pkl"
+    # model_trainer.py saves metrics as model_comparison.csv, not a pickle
+    metrics_path = ROOT_DIR / "models" / "plots" / "model_comparison.csv"
     if metrics_path.exists():
-        metrics    = joblib.load(metrics_path)
-        df_metrics = pd.DataFrame(metrics).T.round(3)
+        df_metrics = pd.read_csv(metrics_path)
         st.dataframe(
             df_metrics.style.highlight_max(axis=0, color="#d4edda"),
             use_container_width=True
         )
     else:
-        st.info("Train models first — then model_metrics.pkl will appear here.")
+        st.info("Train models first — then model_comparison.csv will appear here.")
